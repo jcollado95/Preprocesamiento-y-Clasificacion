@@ -4,8 +4,8 @@ library(dplyr)
 datos = read.csv("./datos/train.csv", na.strings = c(" ", "NA", "?"))
 test = read.csv("./datos/test.csv", na.strings = c(" ", "NA", "?"))
 
-datos = as.tibble(datos)
-test = as.tibble(test)
+datos = as_tibble(datos)
+test = as_tibble(test)
 
 library(Hmisc)
 Hmisc::describe(datos)
@@ -31,7 +31,7 @@ incompletas = mice:nic(test)
 library(Amelia)
 library(lattice)
 
-Amelia::missmap(datos[1:50, 1:20], col=c("red", "steelblue"))
+Amelia::missmap(datos[1:50, ], col=c("red", "steelblue"))
 
 # Ordenar las variables por datos perdidos
 porOrden = sort(sapply(datos, 
@@ -64,12 +64,12 @@ corrplot::corrplot(corrMatrix,
 # Filtrado de variables
 altaCorrelacion = caret::findCorrelation(corrMatrix, cutoff = 0.8)
 filtrado = datos[ , -altaCorrelacion]
-filtrado = as.tibble(filtrado)
+filtrado = as_tibble(filtrado)
 
 # Modelo con OneR
 library(OneR)
 modelo1R = OneR::OneR(C ~ ., data = datos)
-summary(modeloR)
+summary(modelo1R)
 
 modelo1R = OneR::OneR(C ~ ., data = filtrado)
 

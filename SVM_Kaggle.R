@@ -2,40 +2,84 @@
 train = read.csv("./datos/train.csv", na.strings = c(" ", "NA", "?"))
 test = read.csv("./datos/test.csv", na.strings = c(" ", "NA", "?"))
 
-datos = train
+train$C = factor(train$C)
 
-# Imputacion de datos perdidos
-cat("Datos completos: ", ncc(datos), " e incompletos: ", nic(datos), "\n")
-imputados <- mice(datos)
-datos <- complete(imputados)
+IQR <- sapply(na.omit(train[ , -51]), IQR)
+BT <- sapply(na.omit(train[ , -51]), quantile, probs = .25) - 100 * IQR
+TT <- sapply(na.omit(train[ , -51]), quantile, probs = .75) + 100 * IQR
 
-# TO DO: Normalize data (Test?)
-#datosPre <- caret::preProcess(datos[,1:50],method=c("center","scale"))
-#datosTransformados <- predict(datosPre,datos[,1:50])
-#datos[ , -51] <- datosTransformados
+# Eliminacion de outliers
+trainSinClase <- train[ , -51]
+outliers <- trainSinClase
 
-#testPre <- caret::preProcess(test,method=c("center","scale"))
-#test <- predict(testPre, test)
+for ( i in c(1:ncol(trainSinClase))) {
+  outliers[,i] <- (trainSinClase[,i] > BT[i] & trainSinClase[,i] < TT[i])
+}
 
+outliers[is.na(outliers)] <- TRUE
+outliersFilas <- as.logical(apply(outliers,1,prod))
+dataLimpio <- trainSinClase[outliersFilas,]
+
+dataTrain <- cbind(dataLimpio,"C"=train[rownames(dataLimpio),51])
+
+# Imputacion de valores perdidos
+library(mice)
+imputados <- mice(dataTrain, m = 5, method = "pmm")
+dataTrain <- complete(imputados)
 
 # Filtrado de variables muy correladas
-library(corrplot)
 library(caret)
-corrMatrix = cor(na.omit(datos))
+library(corrplot)
+corrMatrix = cor(na.omit(dataTrain[,-51]))
 corrplot::corrplot(corrMatrix, 
                    order = "FPC", 
                    type = "upper", 
                    tl.col = "black", 
                    tl.str = 45) # FPC ordena de izquierda a derecha las mas correladas
 
-altaCorrelacion = caret::findCorrelation(corrMatrix, cutoff = 0.8)
-datos = datos[ , -altaCorrelacion]
+altaCorrelacion = findCorrelation(corrMatrix, cutoff = 0.8)
+dataTrain = dataTrain[ , -altaCorrelacion]
 
-# TO DO: tune best parameters (C and Gamma) -> tune.svm()
+# CHECK: Normalizacion de los datos
+library(caret)
+preprocesamiento <- preProcess(dataTrain[,1:(ncol(dataTrain)-1)],method=c("center","scale"))
+dataTrain[ , -ncol(dataTrain)] <- predict(preprocesamiento,dataTrain[,1:(ncol(dataTrain)-1)])
+
+# TO DO: Tune best parameters (C and Gamma) -> tune.svm()
+
 
 # Generacion del modelo con SVM
 library(e1071)
-model = e1071::svm(C ~ ., data = datos, type = "C-classification")
+tuned_parameters <- tune.svm(C~., data = dataTrain, gamma = 2^(-1:-1), cost = 2^(-2:2))
+summary(tuned_parameters)
+plot(tuned_parameters)
+
+model = e1071::svm(C ~ ., data = dataTrain, type = "C-classification")
+
+# Preprocesamiento test
+test = test[ , -altaCorrelacion]
+
+IQR <- sapply(test,IQR)
+Q1 <- sapply(test,quantile,probs=.25)
+Q3 <- sapply(test,quantile,probs=.75)
+TT <- Q3 + 100*IQR
+BT <- Q1 - 100*IQR
+
+outliers <- test
+
+for ( i in c(1:ncol(test))) {
+  outliers[,i] <- (test[,i] > BT[i] & test[,i] < TT[i])
+}
+
+outliersFilas <- as.logical(apply(outliers,1,prod))
+medias <- apply(test[outliersFilas,], 2, mean)
+
+dataTest <- test
+for (x in c(1:ncol(test))) {
+  dataTest[!outliersFilas,x] <- medias[x]
+}
+
+test <- predict(preprocesamiento, dataTest)
 
 # Generacion de la prediccion
 pred = predict(model, test)
